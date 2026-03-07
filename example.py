@@ -22,7 +22,6 @@ from timeline import Timeline
 wiki = Timeline()
 version = {"main": 0}
 
-
 def edit(page, content, branch="main"):
     """Edit a page. Each edit increments the version."""
     v = version.get(branch, 0)
@@ -80,6 +79,8 @@ print("\n=== Deleting a page ===\n")
 remove("about")
 read("about")          # gone
 read("about", v=2)     # still readable at old version
+edit("about", "Re-added about page")
+read("about")
 
 print("\n=== Version history ===\n")
 
@@ -148,7 +149,3 @@ read_draft = loaded.get("home", version["redesign-v2"], branch="redesign-v2")
 print(f"  main: {read_loaded}")
 print(f"  redesign-v2: {read_draft}")
 print(f"  branch tree: {loaded.branch_tree}")
-
-# Clean up
-import os
-os.remove("wiki_data.json")

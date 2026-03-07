@@ -85,13 +85,17 @@ def main():
                 print(f"  [{branch}] {key} at t={ts} = {result!r}")
 
             elif cmd == "delete":
-                if len(parts) < 3 or len(parts) > 4:
-                    print("Usage: delete <key> <timestamp> [branch]")
+                if len(parts) < 4 or len(parts) > 5:
+                    print("Usage: delete <key> <keep_value> <timestamp> [branch]")
                     continue
-                key, ts = parts[1], int(parts[2])
-                branch = parts[3] if len(parts) == 4 else "main"
-                cache.delete(key, ts, branch)
-                print(f"  [{branch}] deleted {key} at t={ts}")
+                key = parts[1]
+                # Convert the string input (like 'true' or 'false') into a Python boolean
+                keep_value = parts[2].lower() in ['true', 't', '1', 'yes', 'y']
+                ts = int(parts[3])
+                branch = parts[4] if len(parts) == 5 else "main"
+                # Pass both branch and keep_value as keyword arguments to avoid SyntaxError
+                cache.delete(key, timestamp=ts, branch=branch, keep_value=keep_value)
+                print(f"  [{branch}] deleted {key} at t={ts} (keep_value={keep_value})")
 
             elif cmd == "branch":
                 if len(parts) < 3 or len(parts) > 4:
