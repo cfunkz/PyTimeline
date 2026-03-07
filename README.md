@@ -3,7 +3,7 @@
   <p align="center">
     An in-memory timeline that tracks every change over time with branching.
     <br/>
-    <code>set</code> · <code>get</code> · <code>delete</code> · <code>branch</code> · <code>history</code> · <code>changelog</code>
+    <code>set</code> · <code>get</code> · <code>delete</code> · <code>branch</code> · <code>history</code> · <code>changelog</code> · <code>save</code> · <code>load</code>
   </p>
 </p>
 
