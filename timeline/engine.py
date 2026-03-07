@@ -165,13 +165,13 @@ class Timeline:
     #   timeline.get("price", timestamp=3)   → 100  (before delete)
     #   timeline.get("price", timestamp=6)   → None (after delete)
 
-    def delete(self, key, timestamp, keep_value=True, branch="main"):
+    def delete(self, key, timestamp, branch="main"):
         events = self._events_for(key, branch, create=True)
-        last_value = None
-        if events and keep_value:
-            last_value = events[-1].value   # optionally keep the last known value
-        insort(events, Event(timestamp, key, last_value, deleted=True))
-
+        # prevent duplicate delete at same timestamp
+        if events and events[-1].timestamp == timestamp and events[-1].deleted:
+            return
+        insort(events, Event(timestamp, key, None, deleted=True))
+        
     # ── get: look up a value at a specific time ──────────────
     #
     # This is the core "time travel" method.

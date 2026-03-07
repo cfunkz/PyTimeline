@@ -47,7 +47,7 @@ def remove(page, branch="main"):
     v = version.get(branch, 0)
     v += 1
     version[branch] = v
-    wiki.delete(page, timestamp=v, keep_value=True, branch=branch)
+    wiki.delete(page, timestamp=v, branch=branch)
     print(f"  [{branch} v{v}] Removed '{page}'")
 
 
