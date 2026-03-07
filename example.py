@@ -1,45 +1,132 @@
 """
-example.py - Quick demo of all Timeline features.
+wiki.py - A tiny wiki with version history and drafts.
 
-    python example.py
+Every edit is saved. You can view any old version,
+see who changed what, and create drafts without
+affecting the published page.
+
+Uses every Timeline feature:
+    set       → edit a page
+    get       → read a page (at any version)
+    delete    → remove a page
+    history   → see version list
+    changelog → see every edit including reverted ones
+    branch    → create a draft
+    sub-branch → fork a draft
+
+    python wiki.py
 """
 
 from timeline import Timeline
 
-t = Timeline()
+wiki = Timeline()
+version = {"main": 0}
 
-# ── set and get ──────────────────────────────────────────────
 
-t.set("price", 100, timestamp=1)
-t.set("price", 120, timestamp=3)
-t.set("price", 95,  timestamp=5)
+def edit(page, content, branch="main"):
+    """Edit a page. Each edit increments the version."""
+    v = version.get(branch, 0)
+    v += 1
+    version[branch] = v
+    wiki.set(page, content, timestamp=v, branch=branch)
+    print(f"  [{branch} v{v}] Saved '{page}'")
 
-print("Time travel:")
-print(f"  t=0: {t.get('price', 0)}")  # None  (not set yet)
-print(f"  t=1: {t.get('price', 1)}")  # 100
-print(f"  t=2: {t.get('price', 2)}")  # 100   (unchanged)
-print(f"  t=4: {t.get('price', 4)}")  # 120
-print(f"  t=5: {t.get('price', 5)}")  # 95
 
-# ── delete ───────────────────────────────────────────────────
+def read(page, v=None, branch="main"):
+    """Read a page. Optionally at a specific version."""
+    if v is None:
+        v = version.get(branch, 0)
+    result = wiki.get(page, v, branch=branch)
+    if result is None:
+        print(f"  [{branch} v{v}] '{page}' does not exist")
+    else:
+        print(f"  [{branch} v{v}] {page}: {result}")
 
-t.delete("price", timestamp=7)
 
-print("\nDelete:")
-print(f"  t=6: {t.get('price', 6)}")  # 95   (before delete)
-print(f"  t=8: {t.get('price', 8)}")  # None (after delete)
+def remove(page, branch="main"):
+    """Remove a page."""
+    v = version.get(branch, 0)
+    v += 1
+    version[branch] = v
+    wiki.delete(page, timestamp=v, branch=branch)
+    print(f"  [{branch} v{v}] Removed '{page}'")
 
-# ── history ──────────────────────────────────────────────────
 
-print(f"\nHistory: {t.history('price')}")
-# [(1, 100), (3, 120), (5, 95), (7, None)]
+def draft(name, source="main"):
+    """Create a draft branch from the current version."""
+    v = version.get(source, 0)
+    wiki.branch(name, from_timestamp=v, source=source)
+    version[name] = v
+    print(f"  Created draft '{name}' from '{source}' at v{v}")
 
-# ── branch ───────────────────────────────────────────────────
 
-t.branch("alt", from_timestamp=3)
-t.set("price", 200, timestamp=5, branch="alt")
+# ─────────────────────────────────────────────────────────────
 
-print("\nBranch:")
-print(f"  main at t=5: {t.get('price', 5)}")                    # 95
-print(f"  alt  at t=5: {t.get('price', 5, branch='alt')}")      # 200
-print(f"  alt  at t=2: {t.get('price', 2, branch='alt')}")      # 100 (inherited)
+print("=== Editing pages ===\n")
+
+edit("home", "Welcome to the wiki")
+edit("about", "This wiki is built with PyTimeline")
+edit("home", "Welcome to the wiki! Updated.")
+read("home")
+
+print("\n=== Reading old versions ===\n")
+
+read("home", v=1)    # first version
+read("home", v=2)    # about was edited at v2, home still v1 content
+read("home", v=3)    # updated version
+
+print("\n=== Deleting a page ===\n")
+
+remove("about")
+read("about")          # gone
+read("about", v=2)     # still readable at old version
+
+print("\n=== Version history ===\n")
+
+print(f"  home history:  {wiki.history('home')}")
+print(f"  about history: {wiki.history('about')}")
+
+print("\n=== Changelog (shows reverted edits too) ===\n")
+
+# Simulate a quick correction at the same version
+v = version["main"]
+wiki.set("home", "TYPO version", timestamp=v, branch="main")
+wiki.set("home", "Fixed version", timestamp=v, branch="main")
+print(f"  Two edits at same version (v{v}):")
+
+print()
+print(f"  history:   {wiki.history('home')}")
+print(f"  changelog: {wiki.changelog('home')}")
+print("  (history shows 'Fixed version', changelog shows both)")
+
+
+print("\n=== Drafts (branches) ===\n")
+
+draft("redesign")
+edit("home", "Redesigned homepage!", branch="redesign")
+
+print()
+read("home")                         # main is unchanged
+read("home", branch="redesign")      # draft has new content
+
+print("\n=== Multiple drafts ===\n")
+
+draft("experiment")
+edit("home", "Experimental homepage!", branch="experiment")
+
+print()
+read("home")                           # main
+read("home", branch="redesign")        # draft 1
+read("home", branch="experiment")      # draft 2
+
+print("\n=== Sub-draft (branch from a draft) ===\n")
+
+draft("redesign-v2", source="redesign")
+edit("home", "Redesign v2 - even better!", branch="redesign-v2")
+
+print()
+read("home", branch="redesign")        # original draft
+read("home", branch="redesign-v2")     # forked draft
+
+print()
+print(f"  branch tree: {wiki.branch_tree}")

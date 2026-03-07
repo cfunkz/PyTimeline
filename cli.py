@@ -26,9 +26,10 @@ def print_help():
     print("  delete <key> <timestamp> [branch]")
     print("  branch <name> <from_timestamp> [source]")
     print("  history <key> [branch]")
-    print("  branches                  — list all branches")
-    print("  help                      — show this message")
-    print("  exit                      — quit")
+    print("  changelog <key> [branch]")
+    print("  branches                  - list all branches")
+    print("  help                      - show this message")
+    print("  exit                      - quit")
 
 
 def main():
@@ -99,6 +100,19 @@ def main():
                 h = cache.history(key, branch)
                 if not h:
                     print(f"  [{branch}] no history for '{key}'")
+                else:
+                    for ts, val in h:
+                        print(f"  t={ts}: {val!r}")
+
+            elif cmd == "changelog":
+                if len(parts) < 2 or len(parts) > 3:
+                    print("Usage: changelog <key> [branch]")
+                    continue
+                key = parts[1]
+                branch = parts[2] if len(parts) == 3 else "main"
+                h = cache.changelog(key, branch)
+                if not h:
+                    print(f"  [{branch}] no changelog for '{key}'")
                 else:
                     for ts, val in h:
                         print(f"  t={ts}: {val!r}")

@@ -2,7 +2,7 @@
 pytest_test.py - Tests for Timeline.
 
     pip install pytest
-    pytest pytest_test.py -v
+    python -m pytest tests/ -v
 """
 
 import pytest
@@ -139,6 +139,54 @@ class TestHistory:
         t.set("x", "only", timestamp=1)
         assert t.history("x") == [(1, "only")]
 
+    def test_history_shows_latest_per_timestamp(self):
+        t = Timeline()
+        t.set("x", "old", timestamp=1)
+        t.set("x", "new", timestamp=1)
+        # history only shows the latest value per timestamp
+        assert t.history("x") == [(1, "new")]
+
+
+# ── Changelog ────────────────────────────────────────────────
+
+class TestChangelog:
+    def test_full_changelog(self):
+        t = Timeline()
+        t.set("x", 1, timestamp=1)
+        t.set("x", 2, timestamp=3)
+        t.delete("x", timestamp=5)
+        assert t.changelog("x") == [(1, 1), (3, 2), (5, None)]
+
+    def test_empty_changelog(self):
+        t = Timeline()
+        assert t.changelog("x") == []
+
+    def test_changelog_shows_all_duplicates(self):
+        t = Timeline()
+        t.set("x", "first", timestamp=1)
+        t.set("x", "second", timestamp=1)
+        t.set("x", "third", timestamp=1)
+        # changelog shows every single change
+        assert t.changelog("x") == [(1, "first"), (1, "second"), (1, "third")]
+
+    def test_changelog_vs_history(self):
+        t = Timeline()
+        t.set("x", 100, timestamp=1)
+        t.set("x", 200, timestamp=1)
+        t.set("x", 300, timestamp=3)
+        # history: clean, latest per timestamp
+        assert t.history("x") == [(1, 200), (3, 300)]
+        # changelog: every change ever made
+        assert t.changelog("x") == [(1, 100), (1, 200), (3, 300)]
+
+    def test_changelog_set_delete_set_same_timestamp(self):
+        t = Timeline()
+        t.set("x", "hello", timestamp=1)
+        t.delete("x", timestamp=1)
+        t.set("x", "back", timestamp=1)
+        assert t.changelog("x") == [(1, "hello"), (1, None), (1, "back")]
+        assert t.history("x") == [(1, "back")]
+
 
 # ── Branching ────────────────────────────────────────────────
 
@@ -212,11 +260,12 @@ class TestEdgeCases:
         t = Timeline()
         t.set("x", "first", timestamp=1)
         t.set("x", "second", timestamp=1)
-        # Full changelog: both events are kept in the list
-        # get() returns the latest one, history() shows both
+        # get() returns the latest one
         assert t.get("x", 1) == "second"
-        assert len(t.history("x")) == 2  # both recorded
-        assert t.history("x") == [(1, "first"), (1, "second")]
+        # history() shows latest per timestamp (clean view)
+        assert t.history("x") == [(1, "second")]
+        # changelog() shows every change ever made (full audit log)
+        assert t.changelog("x") == [(1, "first"), (1, "second")]
 
     def test_bad_branch_name(self):
         t = Timeline()

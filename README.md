@@ -22,16 +22,12 @@
 - [Tests](#-tests)
 - [Project Structure](#-project-structure)
 
----
-
 ## Install
 
 ```bash
 git clone https://github.com/cfunkz/PyTimeline.git
 cd PyTimeline
 ```
-
----
 
 ## How It Works
 
@@ -44,8 +40,6 @@ data["price"] = 120    # 100 is gone forever
 ```
 
 PyTimeline remembers **every** change as a list of events. Nothing is ever overwritten or removed.
-
----
 
 ### 📝 Setting values
 
@@ -68,8 +62,6 @@ What is stored in memory after these two lines:
 ```
 
 > Both events exist. Nothing was overwritten.
-
----
 
 ### 🔍 Getting values (time travel)
 
@@ -94,8 +86,6 @@ get(t=2):    ◄───┘            │        ← t=1 is most recent before
 get(t=4):         ◄───────────┘        ← t=3 is most recent before t=4
 get(t=0):    nothing before t=0        ← returns None
 ```
-
----
 
 ### 🗑️ Deleting
 
@@ -142,8 +132,6 @@ Full audit log with `history()`:
 t.history("price")
 # [(1, 100), (3, 120), (5, None), (8, 200)]
 ```
-
----
 
 ### 🌿 Branching
 
@@ -194,8 +182,6 @@ Same key, same timestamp, different values in each branch:
 t.get("price", timestamp=5)                    # main → 95
 t.get("price", timestamp=5, branch="alt")      # alt  → 999
 ```
-
----
 
 ### 🌳 The branch tree
 
@@ -260,8 +246,6 @@ branch_tree = {
 > `"main"` is never in `branch_tree`. It's the root.
 > Only sub-branches appear here.
 
----
-
 ### 💻 CLI
 
 ```
@@ -298,16 +282,12 @@ $ python cli.py
 > exit
 ```
 
----
-
 ### 🧪 Tests
 
 ```bash
 pip install pytest
 python -m pytest tests/ -v
 ```
-
----
 
 ### 📁 Project Structure
 
@@ -326,7 +306,3 @@ PyTimeline/
 ├── example.py             # quick demo
 └── README.md
 ```
-
----
-
-<p align="center">MIT License</p>

@@ -18,6 +18,7 @@ WHAT IS bisect_right? (used in the get() method)
     bisect_right answers: "If I inserted this value into a sorted list,
     WHICH POSITION would it go into?"
 
+    IMPORTANT: It does NOT actually insert anything!
     It just tells you the position. The list stays unchanged.
 
     Example:
@@ -37,7 +38,8 @@ WHAT IS bisect_right? (used in the get() method)
          position 2 — bisect_right just tells us this number
 
     WHY WE USE IT:
-        We want to find the most recent event AT or BEFORE a certain time.
+        We don't want to insert anything. We want to find the most
+        recent event AT or BEFORE a certain time.
 
         bisect_right tells us where our target time WOULD go.
         The item ONE STEP BACK (position - 1) is the answer.
@@ -50,7 +52,7 @@ WHAT IS bisect_right? (used in the get() method)
 
     WHY NOT JUST LOOP?
         We could loop through every event and check, but bisect_right
-        is much faster on large lists (it uses binary search and cuts
+        is much faster on large lists (it uses binary search — cuts
         the list in half each step instead of checking one by one).
 
 
@@ -60,11 +62,12 @@ WHAT IS A "DUMMY" EVENT? (used in the get() method)
     Our events are compared by timestamp (see models.py).
 
     To search "what happened at time 4?", we need something with
-    timestamp=4 to compare against.
+    timestamp=4 to compare against. But we don't have a real event
+    at time 4 — that's what we're trying to find!
 
     So we create a FAKE event (a "dummy") with just the timestamp
-    we're looking for. The key and value don't matter because they're only
-    there for Event.__init__.
+    we're looking for. The key and value don't matter — they're only
+    there because Event.__init__ requires them.
 
         dummy = Event(timestamp=4, key="x", value=None)
         #                    ↑ this is all we care about
@@ -74,9 +77,10 @@ WHAT IS A "DUMMY" EVENT? (used in the get() method)
     using their timestamps, and tells us where time 4 would fit
     in the sorted list.
 
+
 WHAT IS copy.deepcopy? (used in the branch() method)
 
-    When you copy a list in Python, you get a SHALLOW copy:
+    When Python list is copied, it's a SHALLOW copy:
         original = [{"a": 1}]
         shallow = original.copy()
         shallow[0]["a"] = 999
@@ -140,7 +144,7 @@ class Timeline:
     #
     # What happens inside:
     #   1. Get (or create) the event list for "price"
-    #   2. Append a new Event
+    #   2. Append a new Event (never replaces — full changelog)
     #   3. Sort the list so events stay in time order
     #
     # If you set the same key at the same timestamp twice,
@@ -272,6 +276,31 @@ class Timeline:
     #   → [(1, 100), (3, 120), (5, None)]
 
     def history(self, key, branch="main"):
+        events = self._events_for(key, branch)
+        # Only keep the LAST event per timestamp
+        # If you set the same timestamp twice, only the latest shows
+        latest = {}
+        for e in events:
+            latest[e.timestamp] = None if e.deleted else e.value
+        return sorted(latest.items())
+
+    # ── changelog: every single change ever made ─────────────
+    #
+    # Unlike history(), this shows ALL events including duplicates
+    # at the same timestamp. This is the full audit log.
+    #
+    # Example:
+    #   timeline.set("price", 100, timestamp=1)
+    #   timeline.set("price", 999, timestamp=1)   ← changed mind
+    #   timeline.set("price", 120, timestamp=3)
+    #
+    #   timeline.history("price")
+    #   → [(1, 999), (3, 120)]                    ← clean, latest per timestamp
+    #
+    #   timeline.changelog("price")
+    #   → [(1, 100), (1, 999), (3, 120)]          ← every change ever made
+
+    def changelog(self, key, branch="main"):
         events = self._events_for(key, branch)
         return [(e.timestamp, None if e.deleted else e.value) for e in events]
 
