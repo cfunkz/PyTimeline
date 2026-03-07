@@ -18,9 +18,6 @@ WHAT IS bisect_right? (used in the get() method)
     bisect_right answers: "If I inserted this value into a sorted list,
     WHICH POSITION would it go into?"
 
-    IMPORTANT: It does NOT actually insert anything!
-    It just tells you the position. The list stays unchanged.
-
     Example:
         values =    [1,  3,  5,  7]
         positions:   0   1   2   3
@@ -38,8 +35,7 @@ WHAT IS bisect_right? (used in the get() method)
          position 2 — bisect_right just tells us this number
 
     WHY WE USE IT:
-        We don't want to insert anything. We want to find the most
-        recent event AT or BEFORE a certain time.
+        We want to find the most recent event AT or BEFORE a certain time.
 
         bisect_right tells us where our target time WOULD go.
         The item ONE STEP BACK (position - 1) is the answer.
@@ -52,7 +48,7 @@ WHAT IS bisect_right? (used in the get() method)
 
     WHY NOT JUST LOOP?
         We could loop through every event and check, but bisect_right
-        is much faster on large lists (it uses binary search — cuts
+        is much faster on large lists (it uses binary search because it cuts
         the list in half each step instead of checking one by one).
 
 
@@ -66,7 +62,7 @@ WHAT IS A "DUMMY" EVENT? (used in the get() method)
     at time 4 — that's what we're trying to find!
 
     So we create a FAKE event (a "dummy") with just the timestamp
-    we're looking for. The key and value don't matter — they're only
+    we're looking for. The key and value don't matter as they're only
     there because Event.__init__ requires them.
 
         dummy = Event(timestamp=4, key="x", value=None)
@@ -80,7 +76,7 @@ WHAT IS A "DUMMY" EVENT? (used in the get() method)
 
 WHAT IS copy.deepcopy? (used in the branch() method)
 
-    When Python list is copied, it's a SHALLOW copy:
+    When you copy a list in Python, you get a SHALLOW copy:
         original = [{"a": 1}]
         shallow = original.copy()
         shallow[0]["a"] = 999
@@ -99,6 +95,7 @@ WHAT IS copy.deepcopy? (used in the branch() method)
 
 from bisect import bisect_right
 import copy
+import json
 from .models import Event
 
 
@@ -160,7 +157,7 @@ class Timeline:
 
     # ── delete: mark a key as removed at a point in time ─────
     #
-    # Doesn't actually erase anything — it adds an Event with
+    # Doesn't actually delete anything — it adds an Event with
     # deleted=True. This way the history is preserved.
     #
     # Example:
@@ -321,3 +318,92 @@ class Timeline:
         if key not in self.branches[branch]:
             self.branches[branch][key] = []
         return self.branches[branch][key]
+
+    # ── save: write timeline to a JSON file ──────────────────
+    #
+    # Saves everything (all branches, all events, the branch tree)
+    # to a .json file so you can load it later.
+    #
+    # Example:
+    #   timeline.save("my_data.json")
+    #
+    # The file looks like:
+    #   {
+    #     "branch_tree": {"alt": "main"},
+    #     "branches": {
+    #       "main": {
+    #         "home": [
+    #           {"timestamp": 1, "key": "home", "value": "Welcome", "deleted": false}
+    #         ]
+    #       }
+    #     }
+    #   }
+    #
+    # NOTE: Values must be JSON-compatible types
+    # (strings, numbers, bools, None, lists, dicts).
+
+    def save(self, filepath):
+        data = {
+            "branch_tree": self.branch_tree,
+            "branches": {}
+        }
+        for branch_name, keys in self.branches.items():
+            data["branches"][branch_name] = {}
+            for key, events in keys.items():
+                for e in events:
+                    if not isinstance(e.value, (str, int, float, bool, list, dict, type(None))):
+                        raise TypeError(
+                            f"Cannot save to JSON: key '{e.key}' at timestamp {e.timestamp} "
+                            f"in branch '{branch_name}' has value of type {type(e.value).__name__}. "
+                            f"JSON only supports: str, int, float, bool, None, list, dict."
+                        )
+                data["branches"][branch_name][key] = [
+                    {
+                        "timestamp": e.timestamp,
+                        "key": e.key,
+                        "value": e.value,
+                        "deleted": e.deleted
+                    }
+                    for e in events
+                ]
+
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+
+    # ── load: restore timeline from a JSON file ──────────────
+    #
+    # Loads a previously saved timeline. Replaces everything
+    # currently in memory.
+    #
+    # Example:
+    #   timeline.load("my_data.json")
+    #
+    # Can also be used as a class method to create a new timeline:
+    #   timeline = Timeline.from_file("my_data.json")
+
+    def load(self, filepath):
+        with open(filepath, "r") as f:
+            data = json.load(f)
+
+        self.branch_tree = data["branch_tree"]
+        self.branches = {}
+
+        for branch_name, keys in data["branches"].items():
+            self.branches[branch_name] = {}
+            for key, events in keys.items():
+                self.branches[branch_name][key] = [
+                    Event(
+                        timestamp=e["timestamp"],
+                        key=e["key"],
+                        value=e["value"],
+                        deleted=e["deleted"]
+                    )
+                    for e in events
+                ]
+
+    @classmethod
+    def from_file(cls, filepath):
+        """Create a new Timeline loaded from a JSON file."""
+        t = cls()
+        t.load(filepath)
+        return t

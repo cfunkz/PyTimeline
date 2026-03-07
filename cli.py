@@ -28,6 +28,8 @@ def print_help():
     print("  history <key> [branch]")
     print("  changelog <key> [branch]")
     print("  branches                  - list all branches")
+    print("  save <filepath>           - save to JSON file")
+    print("  load <filepath>           - load from JSON file")
     print("  help                      - show this message")
     print("  exit                      - quit")
 
@@ -122,6 +124,20 @@ def main():
                     main_branch = cache.branch_tree.get(name, "-")
                     label = "main-branch" if name not in cache.branch_tree else "sub-branch"
                     print(f"  {name} ({label}, from: {main_branch})")
+
+            elif cmd == "save":
+                if len(parts) != 2:
+                    print("Usage: save <filepath>")
+                    continue
+                cache.save(parts[1])
+                print(f"  saved to {parts[1]}")
+
+            elif cmd == "load":
+                if len(parts) != 2:
+                    print("Usage: load <filepath>")
+                    continue
+                cache.load(parts[1])
+                print(f"  loaded from {parts[1]}")
 
             else:
                 print(f"  unknown command: {cmd} (type 'help')")

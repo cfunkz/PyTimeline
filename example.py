@@ -1,7 +1,7 @@
 """
 wiki.py - A tiny wiki with version history and drafts.
 
-Every edit is saved. This allows to view any old version,
+Every edit is saved. You can view any old version,
 see who changed what, and create drafts without
 affecting the published page.
 
@@ -130,3 +130,25 @@ read("home", branch="redesign-v2")     # forked draft
 
 print()
 print(f"  branch tree: {wiki.branch_tree}")
+
+
+print("\n=== Save and Load ===\n")
+
+wiki.save("wiki_data.json")
+print("  Saved to wiki_data.json")
+
+# Load into a fresh timeline
+from timeline import Timeline
+loaded = Timeline.from_file("wiki_data.json")
+
+print("  Loaded from wiki_data.json")
+print()
+read_loaded = loaded.get("home", version["main"])
+read_draft = loaded.get("home", version["redesign-v2"], branch="redesign-v2")
+print(f"  main: {read_loaded}")
+print(f"  redesign-v2: {read_draft}")
+print(f"  branch tree: {loaded.branch_tree}")
+
+# Clean up
+import os
+os.remove("wiki_data.json")

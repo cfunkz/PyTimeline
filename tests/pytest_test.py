@@ -2,7 +2,7 @@
 pytest_test.py - Tests for Timeline.
 
     pip install pytest
-    python -m pytest tests/ -v
+    pytest pytest_test.py -v
 """
 
 import pytest
@@ -279,3 +279,91 @@ class TestEdgeCases:
         assert t.get("counter", 0) == 0
         assert t.get("counter", 500) == 500
         assert t.get("counter", 999) == 999
+
+
+# ── Save / Load ──────────────────────────────────────────────
+
+class TestSaveLoad:
+    def test_save_and_load(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+
+        t = Timeline()
+        t.set("x", "hello", timestamp=1)
+        t.set("x", "world", timestamp=3)
+        t.delete("x", timestamp=5)
+        t.save(filepath)
+
+        t2 = Timeline()
+        t2.load(filepath)
+
+        assert t2.get("x", 1) == "hello"
+        assert t2.get("x", 3) == "world"
+        assert t2.get("x", 5) is None
+
+    def test_save_load_branches(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+
+        t = Timeline()
+        t.set("x", "A", timestamp=1)
+        t.branch("alt", from_timestamp=1)
+        t.set("x", "B", timestamp=2, branch="alt")
+        t.save(filepath)
+
+        t2 = Timeline.from_file(filepath)
+
+        assert t2.get("x", 1) == "A"
+        assert t2.get("x", 2, branch="alt") == "B"
+        assert t2.branch_tree == {"alt": "main"}
+
+    def test_save_load_complex_values(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+
+        t = Timeline()
+        t.set("dict", {"a": 1, "b": [2, 3]}, timestamp=1)
+        t.set("list", [1, "two", None], timestamp=1)
+        t.set("bool", True, timestamp=1)
+        t.set("num", 3.14, timestamp=1)
+        t.save(filepath)
+
+        t2 = Timeline.from_file(filepath)
+
+        assert t2.get("dict", 1) == {"a": 1, "b": [2, 3]}
+        assert t2.get("list", 1) == [1, "two", None]
+        assert t2.get("bool", 1) is True
+        assert t2.get("num", 1) == 3.14
+
+    def test_from_file(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+
+        t = Timeline()
+        t.set("x", 42, timestamp=1)
+        t.save(filepath)
+
+        t2 = Timeline.from_file(filepath)
+        assert t2.get("x", 1) == 42
+
+    def test_save_load_history_and_changelog(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+
+        t = Timeline()
+        t.set("x", "old", timestamp=1)
+        t.set("x", "new", timestamp=1)
+        t.set("x", "final", timestamp=2)
+        t.save(filepath)
+
+        t2 = Timeline.from_file(filepath)
+
+        assert t2.history("x") == [(1, "new"), (2, "final")]
+        assert t2.changelog("x") == [(1, "old"), (1, "new"), (2, "final")]
+
+    def test_load_file_not_found(self):
+        t = Timeline()
+        with pytest.raises(FileNotFoundError):
+            t.load("nonexistent.json")
+
+    def test_save_non_json_type(self, tmp_path):
+        filepath = str(tmp_path / "test.json")
+        t = Timeline()
+        t.set("x", {1, 2, 3}, timestamp=1)  # set is not JSON-compatible
+        with pytest.raises(TypeError, match="Cannot save to JSON"):
+            t.save(filepath)
