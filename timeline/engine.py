@@ -1,0 +1,294 @@
+"""
+timeline.py - An in-memory timeline that tracks changes over time with branching.
+
+    timeline = Timeline()
+    timeline.set("name", "Alice", timestamp=1)
+    timeline.set("name", "Bob",   timestamp=5)
+
+    timeline.get("name", timestamp=3)   # "Alice"  (time travel)
+    timeline.get("name", timestamp=7)   # "Bob"
+
+    timeline.branch("alt", from_timestamp=3)
+    timeline.set("name", "Charlie", timestamp=5, branch="alt")
+    # "main" has Bob at t=5, "alt" has Charlie at t=5
+
+
+WHAT IS bisect_right? (used in the get() method)
+
+    bisect_right answers: "If I inserted this value into a sorted list,
+    WHICH POSITION would it go into?"
+
+    It just tells you the position. The list stays unchanged.
+
+    Example:
+        values =    [1,  3,  5,  7]
+        positions:   0   1   2   3
+
+        position = bisect_right(values, 4)
+
+        print(position)  → 2
+        print(values)    → [1, 3, 5, 7]   ← unchanged! nothing inserted!
+
+        The 2 means: "4 WOULD go at position 2 (between 3 and 5)":
+
+        [1,  3,  4,  5,  7]    ← if we DID insert (but we don't)
+         0   1   2   3   4
+               ↑
+         position 2 — bisect_right just tells us this number
+
+    WHY WE USE IT:
+        We want to find the most recent event AT or BEFORE a certain time.
+
+        bisect_right tells us where our target time WOULD go.
+        The item ONE STEP BACK (position - 1) is the answer.
+
+        events:     [t=1: 100,  t=3: 120,  t=5: 95]
+        positions:      0           1           2
+
+        bisect_right(events, t=4)  → position 2
+        position 2 - 1 = position 1  → t=3: 120 ✓ (most recent before 4)
+
+    WHY NOT JUST LOOP?
+        We could loop through every event and check, but bisect_right
+        is much faster on large lists (it uses binary search and cuts
+        the list in half each step instead of checking one by one).
+
+
+WHAT IS A "DUMMY" EVENT? (used in the get() method)
+
+    bisect_right compares items using <  (which calls __lt__).
+    Our events are compared by timestamp (see models.py).
+
+    To search "what happened at time 4?", we need something with
+    timestamp=4 to compare against.
+
+    So we create a FAKE event (a "dummy") with just the timestamp
+    we're looking for. The key and value don't matter because they're only
+    there for Event.__init__.
+
+        dummy = Event(timestamp=4, key="x", value=None)
+        #                    ↑ this is all we care about
+        #                              ↑ these don't matter
+
+    bisect_right then compares this dummy against real events
+    using their timestamps, and tells us where time 4 would fit
+    in the sorted list.
+
+WHAT IS copy.deepcopy? (used in the branch() method)
+
+    When you copy a list in Python, you get a SHALLOW copy:
+        original = [{"a": 1}]
+        shallow = original.copy()
+        shallow[0]["a"] = 999
+        print(original)  → [{"a": 999}]  ← BOTH changed!
+
+    That's because both lists point to the SAME dictionary in memory.
+
+    deepcopy creates a completely independent clone:
+        deep = copy.deepcopy(original)
+        deep[0]["a"] = 999
+        print(original)  → [{"a": 1}]  ← original is safe!
+
+    We need deepcopy when branching so that changes in a sub-branch
+    don't accidentally change events in the main-branch.
+"""
+
+from bisect import bisect_right
+import copy
+from .models import Event
+
+
+class Timeline:
+
+    # ── __init__: set up empty storage ───────────────────────
+    #
+    # Creates two things:
+    #   self.branches      → where all the data lives
+    #   self.branch_tree → remembers which branch came from which
+    #
+    # self.branches is a nested dictionary:
+    #   {
+    #       "main": {
+    #           "price": [Event(t=1, 100), Event(t=3, 120)],
+    #           "name":  [Event(t=2, "Alice")],
+    #       },
+    #       "alt": {
+    #           "price": [Event(t=1, 100), Event(t=3, 999)],
+    #       },
+    #       "alt2": {
+    #           "price": [Event(t=1, 100)],
+    #       }
+    #   }
+    #
+    # self.branch_tree tracks where each sub-branch came from:
+    #   {
+    #       "alt":  "main",     ← "alt" was branched from "main"
+    #       "alt2": "alt",      ← "alt2" was branched from "alt"
+    #   }
+    #
+    # Notice "main" is NOT in branch_tree — it has no parent,
+    # it's the root. Only sub-branches appear here.
+
+    def __init__(self):
+        self.branches = {"main": {}}
+        self.branch_tree = {}
+
+    # ── set: record a change ─────────────────────────────────
+    #
+    # Example:
+    #   timeline.set("price", 100, timestamp=1)
+    #
+    # What happens inside:
+    #   1. Get (or create) the event list for "price"
+    #   2. Append a new Event
+    #   3. Sort the list so events stay in time order
+    #
+    # If you set the same key at the same timestamp twice,
+    # BOTH events are recorded. get() returns the latest one,
+    # but history() shows every change ever made.
+    #
+    # .sort() uses Event.__lt__ to compare by timestamp.
+
+    def set(self, key, value, timestamp, branch="main"):
+        events = self._events_for(key, branch)
+        events.append(Event(timestamp, key, value))
+        events.sort()
+
+    # ── delete: mark a key as removed at a point in time ─────
+    #
+    # Doesn't actually erase anything — it adds an Event with
+    # deleted=True. This way the history is preserved.
+    #
+    # Example:
+    #   timeline.set("price", 100, timestamp=1)
+    #   timeline.delete("price", timestamp=5)
+    #   timeline.get("price", timestamp=3)   → 100  (before delete)
+    #   timeline.get("price", timestamp=6)   → None (after delete)
+
+    def delete(self, key, timestamp, branch="main"):
+        events = self._events_for(key, branch)
+        events.append(Event(timestamp, key, None, deleted=True))
+        events.sort()
+
+    # ── get: look up a value at a specific time ──────────────
+    #
+    # This is the core "time travel" method.
+    #
+    # Example: events for "price" are [t=1: 100, t=3: 120, t=5: 95]
+    #
+    #   get("price", timestamp=4) should return 120
+    #   because t=3 is the most recent event at or before t=4
+    #
+    # Step by step:
+    #   1. Create a dummy Event with the timestamp we're searching for
+    #   2. Use bisect_right to find where it would fit in the sorted list
+    #   3. Go one step back (index - 1) to get the most recent event
+    #   4. If that event is a deletion, return None
+    #   5. If nothing found, check the main-branch (for sub-branches)
+    #
+    # Visual example:
+    #
+    #   events:      [t=1: 100]  [t=3: 120]  [t=5: 95]
+    #   indexes:         0            1            2
+    #
+    #   dummy = Event(timestamp=4)
+    #   bisect_right → 2  (dummy would go between index 1 and 2)
+    #   2 - 1 = 1 → events[1] → t=3: 120 ✓
+
+    def get(self, key, timestamp, branch="main"):
+        events = self._events_for(key, branch)
+
+        if events:
+            # Create a fake event just for searching (see explanation above)
+            dummy = Event(timestamp, key, value=None)
+
+            # Find where the dummy would be inserted in the sorted list
+            insert_position = bisect_right(events, dummy)
+
+            # One step back = most recent event at or before our timestamp
+            index = insert_position - 1
+
+            if index >= 0:
+                event = events[index]
+                # If this event was a delete, the key didn't exist at this time
+                return None if event.deleted else event.value
+
+        # Not found in this branch.
+        # If this is a sub-branch, check the main-branch it came from.
+        # Example: "alt" was branched from "main", so check "main" next.
+        main_branch = self.branch_tree.get(branch)
+        if main_branch:
+            return self.get(key, timestamp, main_branch)
+
+        return None
+
+    # ── branch: create a sub-branch (alternate timeline) ─────
+    #
+    # Copies all events up to a certain timestamp into a new branch.
+    # Changes in the sub-branch don't affect the main-branch.
+    #
+    # Example:
+    #   timeline.set("price", 100, timestamp=1)
+    #   timeline.set("price", 120, timestamp=5)
+    #
+    #   timeline.branch("alt", from_timestamp=3)
+    #   # "alt" now has: [t=1: 100]  (copied from main)
+    #   # "alt" does NOT have t=5: 120 (happened after the branch point)
+    #
+    #   timeline.set("price", 999, timestamp=5, branch="alt")
+    #   # main at t=5: 120
+    #   # alt  at t=5: 999  (different timeline!)
+    #
+    # Uses deepcopy so the sub-branch gets its own independent
+    # copies of the events (see explanation at top of file).
+
+    def branch(self, new_name, from_timestamp, source="main"):
+        if new_name in self.branches:
+            raise ValueError(f"Branch '{new_name}' already exists.")
+
+        # Remember: "new_name" is a sub-branch of "source"
+        self.branch_tree[new_name] = source
+
+        # Create empty storage for the new branch
+        self.branches[new_name] = {}
+
+        # Copy events from the source branch, but only up to from_timestamp
+        for key, events in self.branches[source].items():
+            copied = [copy.deepcopy(e) for e in events if e.timestamp <= from_timestamp]
+            if copied:
+                self.branches[new_name][key] = copied
+
+    # ── history: see all changes for a key ───────────────────
+    #
+    # Returns a list of (timestamp, value) pairs.
+    # Deleted entries show None as the value.
+    #
+    # Example:
+    #   timeline.set("price", 100, timestamp=1)
+    #   timeline.set("price", 120, timestamp=3)
+    #   timeline.delete("price", timestamp=5)
+    #
+    #   timeline.history("price")
+    #   → [(1, 100), (3, 120), (5, None)]
+
+    def history(self, key, branch="main"):
+        events = self._events_for(key, branch)
+        return [(e.timestamp, None if e.deleted else e.value) for e in events]
+
+    # ── _events_for: helper to get/create an event list ──────
+    #
+    # The underscore _ at the start is a Python convention meaning
+    # "this is a private/internal method — not meant to be called
+    # from outside the class."
+    #
+    # It does two things:
+    #   1. Checks the branch exists (raises error if not)
+    #   2. Returns the event list for a key, creating an empty
+    #      list [] if that key hasn't been used yet
+
+    def _events_for(self, key, branch):
+        if branch not in self.branches:
+            raise ValueError(f"Branch '{branch}' does not exist.")
+        if key not in self.branches[branch]:
+            self.branches[branch][key] = []
+        return self.branches[branch][key]
