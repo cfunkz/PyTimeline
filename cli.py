@@ -14,6 +14,8 @@ Commands:
     exit
 """
 
+import json
+import shlex
 from timeline import Timeline
 
 cache = Timeline()
@@ -44,7 +46,10 @@ def main():
             print()
             break
 
-        parts = raw.split()
+        try:
+            parts = shlex.split(raw)
+        except ValueError:
+            parts = raw.split()
         if not parts:
             continue
 
@@ -61,7 +66,11 @@ def main():
                 if len(parts) < 4 or len(parts) > 5:
                     print("Usage: set <key> <value> <timestamp> [branch]")
                     continue
-                key, value, ts = parts[1], parts[2], int(parts[3])
+                key, ts = parts[1], int(parts[3])
+                try:
+                    value = json.loads(parts[2])
+                except (json.JSONDecodeError, ValueError):
+                    value = parts[2]
                 branch = parts[4] if len(parts) == 5 else "main"
                 cache.set(key, value, ts, branch)
                 print(f"  [{branch}] {key} = {value!r} at t={ts}")
