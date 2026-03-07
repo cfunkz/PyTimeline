@@ -149,3 +149,6 @@ read_draft = loaded.get("home", version["redesign-v2"], branch="redesign-v2")
 print(f"  main: {read_loaded}")
 print(f"  redesign-v2: {read_draft}")
 print(f"  branch tree: {loaded.branch_tree}")
+
+import os
+os.remove("wiki_data.json")
