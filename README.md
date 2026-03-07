@@ -305,13 +305,12 @@ PyTimeline/
 ├── timeline/
 │   ├── __init__.py
 │   ├── models.py          # Event class
-│   └── timeline.py        # Timeline class
+│   └── engine.py          # Timeline class
 │
 ├── tests/
 │   └── pytest_test.py     # tests
 │
 ├── cli.py                 # interactive CLI
-├── wiki.py                # wiki example app
-├── example.py             # quick feature demo
+├── example.py             # wiki example app
 └── README.md
 ```

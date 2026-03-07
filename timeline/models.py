@@ -28,7 +28,7 @@ class Event:
     def __init__(self, timestamp, key, value, deleted=False):
         self.timestamp = timestamp    # when it happened
         self.key = key                # which key changed
-        self.value = value            # what the new value is
+        self.value = value            # what the value is
         self.deleted = deleted        # was the key deleted?
 
     # __lt__: less than (<) ────────────────────────────────

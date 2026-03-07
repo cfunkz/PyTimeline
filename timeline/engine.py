@@ -1,5 +1,5 @@
 """
-timeline.py - An in-memory timeline that tracks changes over time with branching.
+engine.py - An in-memory timeline that tracks changes over time with branching.
 
     timeline = Timeline()
     timeline.set("name", "Alice", timestamp=1)
@@ -93,7 +93,7 @@ WHAT IS copy.deepcopy? (used in the branch() method)
     don't accidentally change events in the main-branch.
 """
 
-from bisect import bisect_right
+from bisect import bisect_right, insort
 import copy
 import json
 from .models import Event
@@ -151,9 +151,8 @@ class Timeline:
     # .sort() uses Event.__lt__ to compare by timestamp.
 
     def set(self, key, value, timestamp, branch="main"):
-        events = self._events_for(key, branch)
-        events.append(Event(timestamp, key, value))
-        events.sort()
+        events = self._events_for(key, branch, create=True)
+        insort(events, Event(timestamp, key, value))
 
     # ── delete: mark a key as removed at a point in time ─────
     #
@@ -166,10 +165,12 @@ class Timeline:
     #   timeline.get("price", timestamp=3)   → 100  (before delete)
     #   timeline.get("price", timestamp=6)   → None (after delete)
 
-    def delete(self, key, timestamp, branch="main"):
-        events = self._events_for(key, branch)
-        events.append(Event(timestamp, key, None, deleted=True))
-        events.sort()
+    def delete(self, key, timestamp, keep_value=True, branch="main"):
+        events = self._events_for(key, branch, create=True)
+        last_value = None
+        if events and keep_value:
+            last_value = events[-1].value   # optionally keep the last known value
+        insort(events, Event(timestamp, key, last_value, deleted=True))
 
     # ── get: look up a value at a specific time ──────────────
     #
@@ -197,7 +198,7 @@ class Timeline:
     #   2 - 1 = 1 → events[1] → t=3: 120 ✓
 
     def get(self, key, timestamp, branch="main"):
-        events = self._events_for(key, branch)
+        events = self._events_for(key, branch, create=False)
 
         if events:
             # Create a fake event just for searching (see explanation above)
@@ -246,6 +247,8 @@ class Timeline:
     def branch(self, new_name, from_timestamp, source="main"):
         if new_name in self.branches:
             raise ValueError(f"Branch '{new_name}' already exists.")
+        if source not in self.branches:
+            raise ValueError(f"Branch '{source}' does not exist.")
 
         # Remember: "new_name" is a sub-branch of "source"
         self.branch_tree[new_name] = source
@@ -273,7 +276,7 @@ class Timeline:
     #   → [(1, 100), (3, 120), (5, None)]
 
     def history(self, key, branch="main"):
-        events = self._events_for(key, branch)
+        events = self._events_for(key, branch, create=False)
         # Only keep the LAST event per timestamp
         # If you set the same timestamp twice, only the latest shows
         latest = {}
@@ -298,7 +301,7 @@ class Timeline:
     #   → [(1, 100), (1, 999), (3, 120)]          ← every change ever made
 
     def changelog(self, key, branch="main"):
-        events = self._events_for(key, branch)
+        events = self._events_for(key, branch, create=False)
         return [(e.timestamp, None if e.deleted else e.value) for e in events]
 
     # ── _events_for: helper to get/create an event list ──────
@@ -312,12 +315,13 @@ class Timeline:
     #   2. Returns the event list for a key, creating an empty
     #      list [] if that key hasn't been used yet
 
-    def _events_for(self, key, branch):
+    def _events_for(self, key, branch, create=False):
         if branch not in self.branches:
             raise ValueError(f"Branch '{branch}' does not exist.")
-        if key not in self.branches[branch]:
-            self.branches[branch][key] = []
-        return self.branches[branch][key]
+        if create:
+            if key not in self.branches[branch]:
+                self.branches[branch][key] = []
+        return self.branches[branch].get(key, [])
 
     # ── save: write timeline to a JSON file ──────────────────
     #

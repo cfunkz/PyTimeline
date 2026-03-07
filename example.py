@@ -1,5 +1,5 @@
 """
-wiki.py - A tiny wiki with version history and drafts.
+example.py - A tiny wiki with version history and drafts.
 
 Every edit is saved. You can view any old version,
 see who changed what, and create drafts without
@@ -14,7 +14,7 @@ Uses every Timeline feature:
     branch    → create a draft
     sub-branch → fork a draft
 
-    python wiki.py
+    python example.py
 """
 
 from timeline import Timeline
@@ -48,7 +48,7 @@ def remove(page, branch="main"):
     v = version.get(branch, 0)
     v += 1
     version[branch] = v
-    wiki.delete(page, timestamp=v, branch=branch)
+    wiki.delete(page, timestamp=v, keep_value=True, branch=branch)
     print(f"  [{branch} v{v}] Removed '{page}'")
 
 
