@@ -1,7 +1,7 @@
 """
 wiki.py - A tiny wiki with version history and drafts.
 
-Every edit is saved. You can view any old version,
+Every edit is saved. This allows to view any old version,
 see who changed what, and create drafts without
 affecting the published page.
 

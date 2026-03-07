@@ -3,7 +3,7 @@
   <p align="center">
     An in-memory timeline that tracks every change over time with branching.
     <br/>
-    <code>set</code> · <code>get</code> · <code>delete</code> · <code>branch</code> · <code>history</code>
+    <code>set</code> · <code>get</code> · <code>delete</code> · <code>branch</code> · <code>history</code> · <code>changelog</code>
   </p>
 </p>
 
@@ -16,6 +16,7 @@
   - [Setting values](#-setting-values)
   - [Getting values](#-getting-values-time-travel)
   - [Deleting](#-deleting)
+  - [History vs Changelog](#-history-vs-changelog)
   - [Branching](#-branching)
   - [The branch tree](#-the-branch-tree)
 - [CLI](#-cli)
@@ -31,37 +32,37 @@ cd PyTimeline
 
 ## How It Works
 
-A normal dictionary forgets old values:
+Think of it like a wiki. A normal dictionary only keeps the latest edit:
 
 ```python
-data = {}
-data["price"] = 100
-data["price"] = 120    # 100 is gone forever
+page = {}
+page["home"] = "Welcome"
+page["home"] = "Welcome! Updated."    # "Welcome" is gone forever
 ```
 
-PyTimeline remembers **every** change as a list of events. Nothing is ever overwritten or removed.
+PyTimeline remembers **every** edit as a list of events. Nothing is ever overwritten or removed.
 
 ### 📝 Setting values
 
 ```python
 from timeline import Timeline
 
-t = Timeline()
-t.set("price", 100, timestamp=1)
-t.set("price", 120, timestamp=3)
+wiki = Timeline()
+wiki.set("home", "Welcome", timestamp=1)
+wiki.set("home", "Welcome! Updated.", timestamp=2)
 ```
 
-What is stored in memory after these two lines:
+What is stored in memory:
 
 ```
  branches
  └── "main"
-      └── "price"
-           ├── Event(t=1, value=100)     ← first set
-           └── Event(t=3, value=120)     ← second set (first is NOT replaced)
+      └── "home"
+           ├── Event(t=1, value="Welcome")             ← first edit
+           └── Event(t=2, value="Welcome! Updated.")   ← second edit (first is NOT replaced)
 ```
 
-> Both events exist. Nothing was overwritten.
+> Both edits exist. Nothing was overwritten.
 
 ### 🔍 Getting values (time travel)
 
@@ -69,177 +70,180 @@ What is stored in memory after these two lines:
 It finds the **most recent event AT or BEFORE** your timestamp.
 
 ```python
-t.get("price", timestamp=0)    # None, nothing exists yet
-t.get("price", timestamp=1)    # 100  (set here)
-t.get("price", timestamp=2)    # 100  (no t=2 event, so t=1 is closest
-t.get("price", timestamp=3)    # 120  (set here)
-t.get("price", timestamp=99)   # 120  (still t=3, nothing newer
+wiki.get("home", timestamp=0)    # None, page doesn't exist yet
+wiki.get("home", timestamp=1)    # "Welcome" (created here)
+wiki.get("home", timestamp=2)    # "Welcome! Updated." (edited here)
+wiki.get("home", timestamp=99)   # "Welcome! Updated." (no newer edit)
 ```
 
-**How does it find the right event?**
+**How does it find the right version?**
 
 ```
-Event list:  [t=1: 100]   [t=3: 120]
-              ────┬────    ────┬────
-                  │            │
-get(t=2):    ◄───┘            │        ← t=1 is most recent before t=2
-get(t=4):         ◄───────────┘        ← t=3 is most recent before t=4
-get(t=0):    nothing before t=0        ← returns None
+Event list:  [t=1: "Welcome"]   [t=2: "Welcome! Updated."]
+              ──────┬──────     ──────────┬──────────
+                    │                     │
+get(t=1):    ◄─────┘                     │        ← t=1 is most recent at t=1
+get(t=2):              ◄─────────────────┘        ← t=2 is most recent at t=2
+get(t=0):    nothing before t=0                   ← returns None
 ```
 
 ### 🗑️ Deleting
 
-`delete()` does **not** remove events. It **adds** a new event that says `deleted=True`.
+`delete()` does **not** remove events. It **adds** a new event that says `deleted=True`. 
+This is like marking a wiki page as removed, while old versions are still readable.
 
 ```python
-t.delete("price", timestamp=5)
+wiki.set("about", "About this wiki", timestamp=1)
+wiki.delete("about", timestamp=3)
 ```
 
-Memory now has **three** events, nothing was removed:
+Memory now has **two** events, nothing was removed:
 
 ```
- "price"
-  ├── Event(t=1, value=100)         ← still here
-  ├── Event(t=3, value=120)         ← still here
-  └── Event(t=5, deleted=True)      ← NEW, marks deletion
+ "about"
+  ├── Event(t=1, value="About this wiki")    ← still here
+  └── Event(t=3, deleted=True)               ← NEW, marks page as removed
 ```
 
 Now `get()` checks the `deleted` flag:
 
 ```python
-t.get("price", timestamp=4)    # 120   ← t=3 is closest, NOT deleted
-t.get("price", timestamp=5)    # None  ← t=5 found, but marked deleted
-t.get("price", timestamp=99)   # None  ← t=5 still most recent, still deleted
+wiki.get("about", timestamp=2)    # "About this wiki" (before delete)
+wiki.get("about", timestamp=3)    # None (page removed)
+wiki.get("about", timestamp=1)    # "About this wiki" (old version still readable!)
 ```
 
-You can set a value again after deleting. It just adds another event:
+You can recreate a deleted page. It just adds another event:
 
 ```python
-t.set("price", 200, timestamp=8)
+wiki.set("about", "About page is back", timestamp=5)
 ```
 
 ```
- "price"
-  ├── Event(t=1, value=100)
-  ├── Event(t=3, value=120)
-  ├── Event(t=5, deleted=True)
-  └── Event(t=8, value=200)      ← price is back
+ "about"
+  ├── Event(t=1, value="About this wiki")
+  ├── Event(t=3, deleted=True)
+  └── Event(t=5, value="About page is back")    ← page is back
 ```
 
-Full audit log with `history()`:
+### 📋 History vs Changelog
+
+Two ways to see past edits:
 
 ```python
-t.history("price")
-# [(1, 100), (3, 120), (5, None), (8, 200)]
+wiki = Timeline()
+wiki.set("home", "Draft 1", timestamp=1)
+wiki.set("home", "Draft 2", timestamp=1)    # quick correction at same timestamp
+wiki.set("home", "Final",   timestamp=2)
 ```
-
-### 🌿 Branching
-
-Branching copies events up to a timestamp into a new independent branch.
 
 ```python
-t = Timeline()
-t.set("price", 100, timestamp=1)
-t.set("price", 120, timestamp=3)
-t.set("price", 95,  timestamp=5)
+wiki.history("home")      # [(1, 'Draft 2'), (2, 'Final')]
+wiki.changelog("home")    # [(1, 'Draft 1'), (1, 'Draft 2'), (2, 'Final')]
 ```
 
-Branch at timestamp 3:
+- **`history()`** shows the latest value per timestamp. Clean version list.
+- **`changelog()`** shows every single edit, including corrections. Full audit log.
+
+### 🌿 Branching (drafts)
+
+Branching is like creating a draft of your wiki. You can edit the draft
+without affecting the published pages.
 
 ```python
-t.branch("alt", from_timestamp=3)
+wiki = Timeline()
+wiki.set("home", "Welcome", timestamp=1)
+wiki.set("home", "Welcome! Updated.", timestamp=2)
 ```
 
-Events where `timestamp ≤ 3` are copied. Everything after is **not**:
+Create a draft branch at timestamp 2:
+
+```python
+wiki.branch("draft", from_timestamp=2)
+```
+
+Events where `timestamp ≤ 2` are copied. The draft is independent:
 
 ```
  branches
  ├── "main"
- │    └── "price": [t=1: 100,  t=3: 120,  t=5: 95]     ← unchanged
+ │    └── "home": [t=1: "Welcome",  t=2: "Welcome! Updated."]   ← unchanged
  │
- └── "alt"
-      └── "price": [t=1: 100,  t=3: 120]                ← copied up to t=3
+ └── "draft"
+      └── "home": [t=1: "Welcome",  t=2: "Welcome! Updated."]   ← copied
 ```
 
-Now set a different value in `"alt"`:
+Edit the draft without touching main:
 
 ```python
-t.set("price", 999, timestamp=5, branch="alt")
+wiki.set("home", "Redesigned homepage!", timestamp=3, branch="draft")
 ```
 
 ```
  branches
  ├── "main"
- │    └── "price": [t=1: 100,  t=3: 120,  t=5: 95 ]
+ │    └── "home": [t=1: "Welcome",  t=2: "Welcome! Updated."]
  │
- └── "alt"
-      └── "price": [t=1: 100,  t=3: 120,  t=5: 999]    ← different!
+ └── "draft"
+      └── "home": [t=1: "Welcome",  t=2: "Welcome! Updated.",  t=3: "Redesigned!"]
 ```
 
-Same key, same timestamp, different values in each branch:
+Published page vs draft:
 
 ```python
-t.get("price", timestamp=5)                    # main → 95
-t.get("price", timestamp=5, branch="alt")      # alt  → 999
+wiki.get("home", timestamp=3)                    # "Welcome! Updated." (main, unchanged)
+wiki.get("home", timestamp=3, branch="draft")    # "Redesigned homepage!"
 ```
 
 ### 🌳 The branch tree
 
-You can create **multiple branches from the same source**, and **branch from any branch**.
+You can create **multiple drafts**, and **branch from any branch**.
 
-**Two sub-branches from main:**
+**Two drafts from main:**
 
 ```python
-t.branch("alt", from_timestamp=3)
-t.branch("alt2", from_timestamp=1)
+wiki.branch("draft-A", from_timestamp=2)
+wiki.branch("draft-B", from_timestamp=2)
+
+wiki.set("home", "Version A", timestamp=3, branch="draft-A")
+wiki.set("home", "Version B", timestamp=3, branch="draft-B")
 ```
 
 ```
  branch_tree
  │
- main ─────────────────────────────────
- ├── alt    (copied events up to t=3)
- └── alt2   (copied events up to t=1)
+ main ─────────────────────────
+ ├── draft-A    (Version A)
+ └── draft-B    (Version B)
 ```
-
-```
- branches
- ├── "main":  "price": [t=1: 100,  t=3: 120,  t=5: 95]     ← unchanged
- ├── "alt":   "price": [t=1: 100,  t=3: 120]                ← up to t=3
- └── "alt2":  "price": [t=1: 100]                            ← up to t=1
-```
-
-Each branch goes its own way:
 
 ```python
-t.set("price", 999, timestamp=5, branch="alt")
-t.set("price", 444, timestamp=2, branch="alt2")
-
-t.get("price", timestamp=5)                     # main → 95
-t.get("price", timestamp=5, branch="alt")       # alt  → 999
-t.get("price", timestamp=5, branch="alt2")      # alt2 → 444  (no t=5, uses t=2)
+wiki.get("home", timestamp=3)                       # "Welcome! Updated." (main)
+wiki.get("home", timestamp=3, branch="draft-A")     # "Version A"
+wiki.get("home", timestamp=3, branch="draft-B")     # "Version B"
 ```
 
-**Branching from a sub-branch:**
+**Sub-draft (branching from a draft):**
 
 ```python
-t.branch("alt3", from_timestamp=3, source="alt")
+wiki.branch("draft-A2", from_timestamp=3, source="draft-A")
+wiki.set("home", "Version A2", timestamp=4, branch="draft-A2")
 ```
 
 ```
  branch_tree
  │
  main ─────────────────────
- ├── alt ──────────────
- │    └── alt3              ← branched from alt, NOT main
- └── alt2
+ ├── draft-A ──────────
+ │    └── draft-A2          ← branched from draft-A, NOT main
+ └── draft-B
 ```
 
 ```python
 branch_tree = {
-    "alt":  "main",     # alt came from main
-    "alt2": "main",     # alt2 came from main
-    "alt3": "alt",      # alt3 came from alt
+    "draft-A":  "main",       # draft-A came from main
+    "draft-B":  "main",       # draft-B came from main
+    "draft-A2": "draft-A",    # draft-A2 came from draft-A
 }
 ```
 
@@ -253,31 +257,35 @@ $ python cli.py
 ```
 
 ```
-> set price 100 1
-  [main] price = '100' at t=1
+> set home "Welcome" 1
+  [main] home = 'Welcome' at t=1
 
-> set price 120 3
-  [main] price = '120' at t=3
+> set home "Updated" 2
+  [main] home = 'Updated' at t=2
 
-> get price 2
-  [main] price at t=2 = '100'
+> get home 1
+  [main] home at t=1 = 'Welcome'
 
-> branch alt 2
-  created 'alt' from 'main' at t=2
+> branch draft 2
+  created 'draft' from 'main' at t=2
 
-> set price 999 3 alt
-  [alt] price = '999' at t=3
+> set home "Redesigned" 3 draft
+  [draft] home = 'Redesigned' at t=3
 
-> get price 3 alt
-  [alt] price at t=3 = '999'
+> get home 3 draft
+  [draft] home at t=3 = 'Redesigned'
 
 > branches
   main (main-branch, from: -)
-  alt (sub-branch, from: main)
+  draft (sub-branch, from: main)
 
-> history price
-  t=1: '100'
-  t=3: '120'
+> history home
+  t=1: 'Welcome'
+  t=2: 'Updated'
+
+> changelog home
+  t=1: 'Welcome'
+  t=2: 'Updated'
 
 > exit
 ```
@@ -303,6 +311,7 @@ PyTimeline/
 │   └── pytest_test.py     # tests
 │
 ├── cli.py                 # interactive CLI
-├── example.py             # quick demo
+├── wiki.py                # wiki example app
+├── example.py             # quick feature demo
 └── README.md
 ```
