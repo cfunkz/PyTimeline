@@ -9,6 +9,7 @@ __pycache__/
 
 # test data
 wiki_data.json
+blog_data.json
 
 # Distribution / packaging
 .Python

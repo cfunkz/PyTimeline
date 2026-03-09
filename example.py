@@ -1,154 +1,201 @@
 """
-example.py - A tiny wiki with version history and drafts.
+example.py - A blog with drafts, publishing, and version history.
 
 Every edit is saved. You can view any old version,
-see who changed what, and create drafts without
-affecting the published page.
+create drafts without affecting published posts,
+and publish drafts when they're ready.
 
 Uses every Timeline feature:
-    set       → edit a page
-    get       → read a page (at any version)
-    delete    → remove a page
+    set       → write a post
+    get       → read a post (at any version)
+    delete    → remove a post
+    keys      → list all posts
+    diff      → compare two versions
     history   → see version list
-    changelog → see every edit including reverted ones
+    changelog → see every edit including corrections
     branch    → create a draft
-    sub-branch → fork a draft
+    merge     → publish a draft
+    save/load → persist to disk
 
     python example.py
 """
 
 from timeline import Timeline
 
-wiki = Timeline()
+blog = Timeline()
 version = {"main": 0}
 
-def edit(page, content, branch="main"):
-    """Edit a page. Each edit increments the version."""
-    v = version.get(branch, 0)
-    v += 1
+
+def write_post(page, content, branch="main"):
+    """Write or update a post. Each edit increments the version."""
+    v = version.get(branch, 0) + 1
     version[branch] = v
-    wiki.set(page, content, timestamp=v, branch=branch)
+    blog.set(page, content, timestamp=v, branch=branch)
     print(f"  [{branch} v{v}] Saved '{page}'")
 
 
-def read(page, v=None, branch="main"):
-    """Read a page. Optionally at a specific version."""
+def read_post(page, v=None, branch="main"):
+    """Read a post. Optionally at a specific version."""
     if v is None:
         v = version.get(branch, 0)
-    result = wiki.get(page, v, branch=branch)
+    result = blog.get(page, v, branch=branch)
     if result is None:
         print(f"  [{branch} v{v}] '{page}' does not exist")
     else:
         print(f"  [{branch} v{v}] {page}: {result}")
 
 
-def remove(page, branch="main"):
-    """Remove a page."""
-    v = version.get(branch, 0)
-    v += 1
+def remove_post(page, branch="main"):
+    """Remove a post (old versions are still readable)."""
+    v = version.get(branch, 0) + 1
     version[branch] = v
-    wiki.delete(page, timestamp=v, branch=branch)
+    blog.delete(page, timestamp=v, branch=branch)
     print(f"  [{branch} v{v}] Removed '{page}'")
 
 
-def draft(name, source="main"):
+def list_posts(branch="main"):
+    """List all posts that currently exist."""
+    v = version.get(branch, 0)
+    posts = blog.keys(v, branch=branch)
+    if not posts:
+        print(f"  [{branch}] No posts")
+    else:
+        print(f"  [{branch}] Posts: {', '.join(posts)}")
+
+
+def create_draft(name, source="main"):
     """Create a draft branch from the current version."""
     v = version.get(source, 0)
-    wiki.branch(name, from_timestamp=v, source=source)
+    blog.branch(name, from_timestamp=v, source=source)
     version[name] = v
     print(f"  Created draft '{name}' from '{source}' at v{v}")
 
 
+def publish_draft(name, into="main"):
+    """Merge a draft branch into the target (publish it)."""
+    v = version.get(into, 0) + 1
+    version[into] = v
+    blog.merge(name, into=into, timestamp=v)
+    print(f"  Published '{name}' into '{into}' at v{v}")
+
+
 # ─────────────────────────────────────────────────────────────
 
-print("=== Editing pages ===\n")
+print("=== Writing posts ===\n")
 
-edit("home", "Welcome to the wiki")
-edit("about", "This wiki is built with PyTimeline")
-edit("home", "Welcome to the wiki! Updated.")
-read("home")
+write_post("home", "Welcome to my blog")
+write_post("about", "I write about Python")
+write_post("home", "Welcome to my blog! Now with more posts.")
+read_post("home")
 
-print("\n=== Reading old versions ===\n")
 
-read("home", v=1)    # first version
-read("home", v=2)    # about was edited at v2, home still v1 content
-read("home", v=3)    # updated version
+print("\n=== Reading old versions (time travel) ===\n")
 
-print("\n=== Deleting a page ===\n")
+read_post("home", v=1)    # first version
+read_post("home", v=3)    # updated version
 
-remove("about")
-read("about")          # gone
-read("about", v=2)     # still readable at old version
-edit("about", "Re-added about page")
-read("about")
+
+print("\n=== Listing all posts ===\n")
+
+list_posts()
+
+
+print("\n=== Deleting a post ===\n")
+
+remove_post("about")
+list_posts()                     # about is gone
+read_post("about", v=2)         # but old version is still readable
+write_post("about", "About page is back!")
+list_posts()                     # about is back
+
+
+print("\n=== Comparing versions (diff) ===\n")
+
+old, new = blog.diff("home", t1=1, t2=3)
+print(f"  home v1: {old}")
+print(f"  home v3: {new}")
+
 
 print("\n=== Version history ===\n")
 
-print(f"  home history:  {wiki.history('home')}")
-print(f"  about history: {wiki.history('about')}")
+print(f"  home history:  {blog.history('home')}")
+print(f"  about history: {blog.history('about')}")
 
-print("\n=== Changelog (shows reverted edits too) ===\n")
+
+print("\n=== Changelog (shows every edit, even corrections) ===\n")
 
 # Simulate a quick correction at the same version
 v = version["main"]
-wiki.set("home", "TYPO version", timestamp=v, branch="main")
-wiki.set("home", "Fixed version", timestamp=v, branch="main")
+blog.set("home", "TYPO version", timestamp=v, branch="main")
+blog.set("home", "Fixed version", timestamp=v, branch="main")
 print(f"  Two edits at same version (v{v}):")
+print(f"  history:   {blog.history('home')}")
+print(f"  changelog: {blog.changelog('home')}")
+print("  (history shows latest per version, changelog shows everything)")
+
+
+print("\n=== Creating a draft ===\n")
+
+create_draft("redesign")
+write_post("home", "Redesigned homepage!", branch="redesign")
 
 print()
-print(f"  history:   {wiki.history('home')}")
-print(f"  changelog: {wiki.changelog('home')}")
-print("  (history shows 'Fixed version', changelog shows both)")
+read_post("home")                          # main is unchanged
+read_post("home", branch="redesign")       # draft has new content
 
 
-print("\n=== Drafts (branches) ===\n")
+print("\n=== Publishing the draft ===\n")
 
-draft("redesign")
-edit("home", "Redesigned homepage!", branch="redesign")
+publish_draft("redesign")
+read_post("home")                          # main now has the redesigned content
 
-print()
-read("home")                         # main is unchanged
-read("home", branch="redesign")      # draft has new content
 
 print("\n=== Multiple drafts ===\n")
 
-draft("experiment")
-edit("home", "Experimental homepage!", branch="experiment")
+create_draft("dark-theme")
+create_draft("new-footer")
+write_post("home", "Dark theme homepage!", branch="dark-theme")
+write_post("home", "New footer homepage!", branch="new-footer")
 
 print()
-read("home")                           # main
-read("home", branch="redesign")        # draft 1
-read("home", branch="experiment")      # draft 2
+read_post("home")                              # main (published)
+read_post("home", branch="dark-theme")         # draft 1
+read_post("home", branch="new-footer")         # draft 2
+
 
 print("\n=== Sub-draft (branch from a draft) ===\n")
 
-draft("redesign-v2", source="redesign")
-edit("home", "Redesign v2 - even better!", branch="redesign-v2")
+create_draft("dark-theme-v2", source="dark-theme")
+write_post("home", "Dark theme v2 — even better!", branch="dark-theme-v2")
 
 print()
-read("home", branch="redesign")        # original draft
-read("home", branch="redesign-v2")     # forked draft
+read_post("home", branch="dark-theme")        # original draft
+read_post("home", branch="dark-theme-v2")     # forked draft
 
 print()
-print(f"  branch tree: {wiki.branch_tree}")
+print(f"  branch tree: {blog.branch_tree}")
+
+
+print("\n=== Diff across branches ===\n")
+
+main_v = version["main"]
+draft_v = version["dark-theme-v2"]
+old, new = blog.diff("home", main_v, draft_v, branch1="main", branch2="dark-theme-v2")
+print(f"  main:           {old}")
+print(f"  dark-theme-v2:  {new}")
 
 
 print("\n=== Save and Load ===\n")
 
-wiki.save("wiki_data.json")
-print("  Saved to wiki_data.json")
+blog.save("blog_data.json")
+print("  Saved to blog_data.json")
 
-# Load into a fresh timeline
-from timeline import Timeline
-loaded = Timeline.from_file("wiki_data.json")
-
-print("  Loaded from wiki_data.json")
+loaded = Timeline.from_file("blog_data.json")
+print("  Loaded from blog_data.json")
 print()
-read_loaded = loaded.get("home", version["main"])
-read_draft = loaded.get("home", version["redesign-v2"], branch="redesign-v2")
-print(f"  main: {read_loaded}")
-print(f"  redesign-v2: {read_draft}")
-print(f"  branch tree: {loaded.branch_tree}")
+print(f"  main: {loaded.get('home', version['main'])}")
+print(f"  dark-theme-v2: {loaded.get('home', version['dark-theme-v2'], branch='dark-theme-v2')}")
+print(f"  branches: {list(loaded.branches.keys())}")
 
 import os
-os.remove("wiki_data.json")
+os.remove("blog_data.json")

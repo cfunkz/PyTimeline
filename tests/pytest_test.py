@@ -248,6 +248,155 @@ class TestBranch:
         assert t.history("x", branch="alt") == [(1, 1), (4, 99)]
 
 
+# ── Keys ────────────────────────────────────────────────────
+
+class TestKeys:
+    def test_basic_keys(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.set("about", "About us", timestamp=2)
+        assert t.keys(2) == ["about", "home"]
+
+    def test_keys_before_creation(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=5)
+        assert t.keys(3) == []
+
+    def test_keys_after_delete(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.set("about", "About", timestamp=2)
+        t.delete("about", timestamp=3)
+        assert t.keys(2) == ["about", "home"]
+        assert t.keys(4) == ["home"]
+
+    def test_keys_on_branch(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("news", "Breaking!", timestamp=2, branch="draft")
+        assert t.keys(2, branch="draft") == ["home", "news"]
+        assert t.keys(2) == ["home"]  # main doesn't have "news"
+
+    def test_keys_empty(self):
+        t = Timeline()
+        assert t.keys(1) == []
+
+    def test_keys_bad_branch(self):
+        t = Timeline()
+        with pytest.raises(ValueError):
+            t.keys(1, branch="nonexistent")
+
+
+# ── Diff ─────────────────────────────────────────────────────
+
+class TestDiff:
+    def test_basic_diff(self):
+        t = Timeline()
+        t.set("x", "old", timestamp=1)
+        t.set("x", "new", timestamp=5)
+        assert t.diff("x", t1=1, t2=5) == ("old", "new")
+
+    def test_diff_before_existence(self):
+        t = Timeline()
+        t.set("x", "hello", timestamp=5)
+        assert t.diff("x", t1=1, t2=5) == (None, "hello")
+
+    def test_diff_after_delete(self):
+        t = Timeline()
+        t.set("x", "hello", timestamp=1)
+        t.delete("x", timestamp=5)
+        assert t.diff("x", t1=1, t2=5) == ("hello", None)
+
+    def test_diff_no_change(self):
+        t = Timeline()
+        t.set("x", "same", timestamp=1)
+        assert t.diff("x", t1=1, t2=10) == ("same", "same")
+
+    def test_diff_across_branches(self):
+        t = Timeline()
+        t.set("x", "main_val", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("x", "draft_val", timestamp=2, branch="draft")
+        assert t.diff("x", t1=1, t2=2, branch1="main", branch2="draft") == ("main_val", "draft_val")
+
+
+# ── Merge ────────────────────────────────────────────────────
+
+class TestMerge:
+    def test_basic_merge(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("home", "Redesigned!", timestamp=2, branch="draft")
+        t.merge("draft", into="main", timestamp=3)
+        assert t.get("home", 3) == "Redesigned!"
+
+    def test_merge_preserves_old_versions(self):
+        t = Timeline()
+        t.set("home", "v1", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("home", "v2", timestamp=2, branch="draft")
+        t.merge("draft", into="main", timestamp=3)
+        # Old version still accessible via time travel
+        assert t.get("home", 1) == "v1"
+        assert t.get("home", 3) == "v2"
+
+    def test_merge_multiple_keys(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.set("about", "About us", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("home", "New home", timestamp=2, branch="draft")
+        t.set("about", "New about", timestamp=2, branch="draft")
+        t.merge("draft", into="main", timestamp=3)
+        assert t.get("home", 3) == "New home"
+        assert t.get("about", 3) == "New about"
+
+    def test_merge_with_delete(self):
+        t = Timeline()
+        t.set("home", "Welcome", timestamp=1)
+        t.set("old-page", "Remove me", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.delete("old-page", timestamp=2, branch="draft")
+        t.merge("draft", into="main", timestamp=3)
+        assert t.get("old-page", 3) is None
+        assert t.get("home", 3) == "Welcome"
+
+    def test_merge_auto_timestamp(self):
+        t = Timeline()
+        t.set("x", "a", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("x", "b", timestamp=5, branch="draft")
+        t.merge("draft", into="main")  # no timestamp given
+        assert t.get("x", 5) == "b"
+
+    def test_merge_nonexistent_source(self):
+        t = Timeline()
+        with pytest.raises(ValueError):
+            t.merge("nonexistent", into="main", timestamp=1)
+
+    def test_merge_nonexistent_target(self):
+        t = Timeline()
+        t.branch("draft", from_timestamp=0)
+        with pytest.raises(ValueError):
+            t.merge("draft", into="nonexistent", timestamp=1)
+
+    def test_merge_into_self(self):
+        t = Timeline()
+        with pytest.raises(ValueError):
+            t.merge("main", into="main", timestamp=1)
+
+    def test_draft_still_exists_after_merge(self):
+        t = Timeline()
+        t.set("x", "a", timestamp=1)
+        t.branch("draft", from_timestamp=1)
+        t.set("x", "b", timestamp=2, branch="draft")
+        t.merge("draft", into="main", timestamp=3)
+        # Draft branch still exists and is accessible
+        assert t.get("x", 2, branch="draft") == "b"
+
+
 # ── Edge cases ───────────────────────────────────────────────
 
 class TestEdgeCases:

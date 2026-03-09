@@ -167,9 +167,14 @@ class Timeline:
 
     def delete(self, key, timestamp, branch="main"):
         events = self._events_for(key, branch, create=True)
-        # prevent duplicate delete at same timestamp
-        if events and events[-1].timestamp == timestamp and events[-1].deleted:
-            return
+        # Prevent duplicate delete at the same timestamp.
+        # We check ALL events at this timestamp (not just the very last one)
+        # because insort may have placed earlier events after it.
+        for e in reversed(events):
+            if e.timestamp < timestamp:
+                break
+            if e.timestamp == timestamp and e.deleted:
+                return
         insort(events, Event(timestamp, key, None, deleted=True))
         
     # ── get: look up a value at a specific time ──────────────
@@ -303,6 +308,117 @@ class Timeline:
     def changelog(self, key, branch="main"):
         events = self._events_for(key, branch, create=False)
         return [(e.timestamp, None if e.deleted else e.value) for e in events]
+
+    # ── keys: list all pages/posts that exist at a point in time ──
+    #
+    # Loops through every key in the branch and checks if it
+    # has a non-deleted value at the given timestamp.
+    #
+    # Example:
+    #   timeline.set("home", "Welcome", timestamp=1)
+    #   timeline.set("about", "About us", timestamp=2)
+    #   timeline.delete("about", timestamp=5)
+    #
+    #   timeline.keys(timestamp=3)   → ["home", "about"]
+    #   timeline.keys(timestamp=6)   → ["home"]   (about was deleted)
+    #
+    # This is how you'd build a "list all blog posts" page.
+
+    def keys(self, timestamp, branch="main"):
+        if branch not in self.branches:
+            raise ValueError(f"Branch '{branch}' does not exist.")
+
+        result = []
+        for key in self.branches[branch]:
+            # Reuse get() — it already handles time-travel and deletions
+            if self.get(key, timestamp, branch) is not None:
+                result.append(key)
+        return sorted(result)
+
+    # ── diff: compare a key at two different timestamps ────────
+    #
+    # Returns a tuple (old_value, new_value) showing what changed.
+    #
+    # Example:
+    #   timeline.set("home", "Welcome", timestamp=1)
+    #   timeline.set("home", "Updated!", timestamp=5)
+    #
+    #   timeline.diff("home", t1=1, t2=5)
+    #   → ("Welcome", "Updated!")
+    #
+    # If the key didn't exist at t1, old_value is None.
+    # If the key was deleted at t2, new_value is None.
+    #
+    # You can also diff across branches:
+    #   timeline.diff("home", t1=5, t2=5, branch1="main", branch2="draft")
+    #   → ("Welcome", "Draft version")
+
+    def diff(self, key, t1, t2, branch1="main", branch2=None):
+        if branch2 is None:
+            branch2 = branch1
+        old = self.get(key, t1, branch1)
+        new = self.get(key, t2, branch2)
+        return (old, new)
+
+    # ── merge: publish a draft back into the main branch ───────
+    #
+    # Takes the current state of the source branch and applies it
+    # to the target branch at the given timestamp.
+    #
+    # This is a "squash merge" — all draft edits become one change
+    # in the target branch. Simple and clean.
+    #
+    # Example:
+    #   timeline.set("home", "Welcome", timestamp=1)
+    #   timeline.branch("draft", from_timestamp=1)
+    #   timeline.set("home", "Draft v1", timestamp=2, branch="draft")
+    #   timeline.set("home", "Draft v2", timestamp=3, branch="draft")
+    #
+    #   timeline.merge("draft", into="main", timestamp=4)
+    #   timeline.get("home", timestamp=4)   → "Draft v2"
+    #
+    # After merging, the draft branch still exists. You can delete it
+    # or keep editing it — it's up to you.
+    #
+    # HOW IT WORKS:
+    #   1. Look at every key in the source branch
+    #   2. Get the latest value for each key (at merge time)
+    #   3. Set that value in the target branch at the merge timestamp
+    #   4. If a key was deleted in the source, delete it in target too
+
+    def merge(self, source, into="main", timestamp=None):
+        if source not in self.branches:
+            raise ValueError(f"Branch '{source}' does not exist.")
+        if into not in self.branches:
+            raise ValueError(f"Branch '{into}' does not exist.")
+        if source == into:
+            raise ValueError("Cannot merge a branch into itself.")
+
+        # Find the latest timestamp across all events in the source branch
+        # so we know what "current state" means
+        latest_ts = 0
+        for key, events in self.branches[source].items():
+            if events:
+                latest_ts = max(latest_ts, events[-1].timestamp)
+
+        # If no merge timestamp given, use the latest from source
+        if timestamp is None:
+            timestamp = latest_ts
+
+        # For each key in the source branch, apply its current state to target
+        for key in self.branches[source]:
+            events = self._events_for(key, source, create=False)
+            if not events:
+                continue
+
+            # Find the most recent event for this key
+            # (events are sorted by timestamp, so walk backwards)
+            last_event = events[-1]
+
+            if last_event.deleted:
+                self.delete(key, timestamp, into)
+            else:
+                self.set(key, last_event.value, timestamp, into)
 
     # ── _events_for: helper to get/create an event list ──────
     #
